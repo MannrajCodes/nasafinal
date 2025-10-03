@@ -46,6 +46,32 @@ const serviceDistribution = [
   { name: "OrbNet Services", value: 10, color: "#3B82F6" },
 ]
 
+// ...existing code...
+
+// Add this function above your AnalyticsPanel component
+function exportRevenueData() {
+  const header = "Month,Symbiotics,OrbNet,Total\n"
+  const rows = revenueData
+    .map(
+      (row) =>
+        `${row.month},${row.symbiotics},${row.orbnet},${row.total}`
+    )
+    .join("\n")
+  const csv = header + rows
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.setAttribute("download", "revenue_report.csv")
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+
+
 export function AnalyticsPanel() {
   return (
     <div className="space-y-6">
@@ -54,7 +80,7 @@ export function AnalyticsPanel() {
           <h2 className="text-2xl font-bold">Business Analytics</h2>
           <p className="text-muted-foreground">Integrated performance metrics for Orbital Symbiotics & OrbNet</p>
         </div>
-        <Button>
+        <Button onClick={exportRevenueData}>
           <TrendingUp className="h-4 w-4 mr-2" />
           Export Report
         </Button>
@@ -154,7 +180,7 @@ export function AnalyticsPanel() {
                       cy="50%"
                       outerRadius={80}
                       dataKey="value"
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      label={({ name, percent }) => `${name} ${((percent as number) * 100).toFixed(0)}%`}
                     >
                       {serviceDistribution.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={entry.color} />
