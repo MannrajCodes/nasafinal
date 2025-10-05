@@ -1,5 +1,7 @@
 "use client"
 
+import { useTheme } from "next-themes"
+import { useEffect } from "react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -58,34 +60,41 @@ const themes = [
 ]
 
 export function ThemeSelector() {
+  const { setTheme, theme } = useTheme()
   const [currentTheme, setCurrentTheme] = useState("space-blue")
 
-  const applyTheme = (theme: (typeof themes)[0]) => {
+  // Apply theme palette to CSS variables
+  const applyPalette = (themeObj: (typeof themes)[0]) => {
     const root = document.documentElement
-
-    // Apply the new theme colors
-    root.style.setProperty("--primary", theme.primary)
-    root.style.setProperty("--secondary", theme.secondary)
-    root.style.setProperty("--accent", theme.accent)
-
-    // Update chart colors to match theme
-    root.style.setProperty("--chart-1", theme.primary)
-    root.style.setProperty("--chart-2", theme.secondary)
-    root.style.setProperty("--chart-3", theme.accent)
+    root.style.setProperty("--primary", themeObj.primary)
+    root.style.setProperty("--secondary", themeObj.secondary)
+    root.style.setProperty("--accent", themeObj.accent)
+    root.style.setProperty("--chart-1", themeObj.primary)
+    root.style.setProperty("--chart-2", themeObj.secondary)
+    root.style.setProperty("--chart-3", themeObj.accent)
     root.style.setProperty(
       "--chart-4",
-      `oklch(0.7 0.2 ${Number.parseInt(theme.primary.match(/\d+/)?.[0] || "260") + 60})`,
+      `oklch(0.7 0.2 ${Number.parseInt(themeObj.primary.match(/\d+/)?.[0] || "260") + 60})`,
     )
     root.style.setProperty(
       "--chart-5",
-      `oklch(0.6 0.25 ${Number.parseInt(theme.primary.match(/\d+/)?.[0] || "260") + 120})`,
+      `oklch(0.6 0.25 ${Number.parseInt(themeObj.primary.match(/\d+/)?.[0] || "260") + 120})`,
     )
+    root.style.setProperty("--sidebar-primary", themeObj.primary)
+    root.style.setProperty("--sidebar-accent", themeObj.secondary)
+  }
 
-    // Update sidebar colors
-    root.style.setProperty("--sidebar-primary", theme.primary)
-    root.style.setProperty("--sidebar-accent", theme.secondary)
+  // When theme changes (from next-themes), update palette
+  useEffect(() => {
+    const themeObj = themes.find((t) => t.id === theme) || themes[0]
+    setCurrentTheme(themeObj.id)
+    applyPalette(themeObj)
+    // eslint-disable-next-line
+  }, [theme])
 
-    setCurrentTheme(theme.id)
+  const handleThemeChange = (themeObj: (typeof themes)[0]) => {
+    setTheme(themeObj.id)
+    // Palette will be applied by useEffect when theme changes
   }
 
   return (
@@ -105,7 +114,7 @@ export function ThemeSelector() {
               className={`relative p-4 rounded-lg border-2 cursor-pointer transition-all duration-200 hover:scale-105 ${
                 currentTheme === theme.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
               }`}
-              onClick={() => applyTheme(theme)}
+              onClick={() => handleThemeChange(theme)}
             >
               {currentTheme === theme.id && (
                 <div className="absolute top-2 right-2">

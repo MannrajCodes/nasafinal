@@ -13,6 +13,7 @@ import { OrbNetPanel } from "@/components/orbnet-panel"
 import { AnalyticsPanel } from "@/components/analytics-panel"
 import { ThemeSelector } from "@/components/theme-selector"
 import { Satellite, Recycle, Network, BarChart3, Database, Settings, Palette } from "lucide-react"
+import { SettingsDropdown } from "@/components/settings-dropdown"
 
 export default function OrbitalApp() {
   const [activeTab, setActiveTab] = useState("visualization")
@@ -58,32 +59,13 @@ export default function OrbitalApp() {
                 </Badge>
               </div>
 
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowThemeSelector(!showThemeSelector)}
-                className="gap-2"
-              >
-                <Palette className="h-4 w-4" />
-                Themes
-              </Button>
-
-              <Button variant="outline" size="sm" className="gap-2 bg-transparent">
-                <Settings className="h-4 w-4" />
-                Settings
-              </Button>
+<SettingsDropdown />
             </div>
           </div>
         </div>
       </header>
 
-      {showThemeSelector && (
-        <div className="border-b bg-card/30 backdrop-blur-sm">
-          <div className="container mx-auto px-4 py-4">
-            <ThemeSelector />
-          </div>
-        </div>
-      )}
+     
 
       <main className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">

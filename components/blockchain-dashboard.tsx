@@ -1,5 +1,6 @@
 "use client"
-
+import { useWallet } from "./hooks/use-wallet"
+import { ethers } from "ethers" // Import ethers
 import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -57,6 +58,7 @@ const createEmptyTransactionForm = (): TransactionFormState => ({
 
 export function BlockchainDashboard() {
   const [searchQuery, setSearchQuery] = useState("")
+  const wallet = useWallet()
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [blocks, setBlocks] = useState<Block[]>([])
   const [contracts, setContracts] = useState<SmartContract[]>([])
@@ -93,17 +95,29 @@ export function BlockchainDashboard() {
   useEffect(() => {
     void loadData()
   }, [loadData])
-
-  const handleCreateTransaction = async () => {
-    if (!newTransaction.type || !newTransaction.from || !newTransaction.to) {
+const handleCreateTransaction = async () => {
+    if (!wallet) {
       toast({
-        title: "Missing information",
-        description: "Please provide a type, from address, and to address.",
+        title: "Wallet not found",
+        description: "Please wait for your secure wallet to load.",
         variant: "destructive",
       })
       return
     }
 
+    if (
+      newTransaction.type !== "debris_capture" &&
+      newTransaction.type !== "material_processing" &&
+      newTransaction.type !== "satellite_servicing" &&
+      newTransaction.type !== "power_transfer"
+    ) {
+      toast({
+        title: "Invalid transaction type",
+        description: "Please select a valid transaction type.",
+        variant: "destructive",
+      })
+      return
+    }
     const transactionType: Transaction["type"] = newTransaction.type
     const data: TransactionMetadata = {}
 
@@ -125,16 +139,27 @@ export function BlockchainDashboard() {
     }
 
     try {
-      await blockchainClient.createTransaction({
-        type: transactionType,
+      const transactionPayload = {
+        type: newTransaction.type as Transaction["type"],
         data,
-        from: newTransaction.from,
+        from: wallet.address, // Use the wallet's address as the 'from' address
         to: newTransaction.to,
+        timestamp: Date.now(),
+      }
+
+      // 1. Create a digital signature
+      const messageToSign = JSON.stringify(transactionPayload)
+      const signature = await wallet.signMessage(messageToSign)
+
+      // 2. Submit the transaction AND the signature
+      await blockchainClient.createTransaction({
+        ...transactionPayload,
+        signature, // Add the signature to the submission
       })
 
       toast({
         title: "Success",
-        description: "Transaction submitted to blockchain",
+        description: "Signed transaction submitted to blockchain",
       })
 
       setIsCreateDialogOpen(false)
@@ -212,11 +237,11 @@ export function BlockchainDashboard() {
                   <div>
                     <Label htmlFor="from">From Address</Label>
                     <Input
-                      id="from"
-                      value={newTransaction.from}
-                      onChange={(e) => setNewTransaction({ ...newTransaction, from: e.target.value })}
-                      placeholder="0x..."
-                    />
+    id="from"
+    value={wallet?.address || ""} // Display wallet address
+    readOnly // User cannot change their own address
+    placeholder="Loading your address..."
+  />
                   </div>
                   <div>
                     <Label htmlFor="to">To Address</Label>
@@ -327,6 +352,7 @@ export function BlockchainDashboard() {
                         placeholder="OrbNet-3"
                       />
                     </div>
+                    
                   </>
                 )}
 
@@ -604,7 +630,7 @@ export function BlockchainDashboard() {
               </div>
 
               <div className="text-sm text-muted-foreground">
-                <p>Data synchronized from NASA's Orbital Debris Program Office (ODPO)</p>
+                <p>Data synchronized from NASA Orbital Debris Program Office (ODPO)</p>
                 <p>Last updated: {new Date().toLocaleString()}</p>
               </div>
             </CardContent>

@@ -1,21 +1,224 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import dynamic from "next/dynamic"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Recycle, Factory, Wrench, TrendingUp, AlertTriangle, Eye, RotateCcw } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu"
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts"
+import { Recycle, Factory, Wrench, TrendingUp, AlertTriangle, Eye, RotateCcw, FileText, BarChart3, Database } from "lucide-react"
+import { blockchainClient, type Transaction } from "@/lib/blockchain"
+import { nasaDebrisClient, type DebrisObject } from "@/lib/nasa-debris"
 
 // Dynamically import the 3D components to avoid SSR issues
 const OrbitalScene = dynamic(() => import("./orbital-scene"), { ssr: false })
 const SatelliteInteriorScene = dynamic(() => import("./satellite-interior-scene"), { ssr: false })
 
+// Helper function to export data to CSV
+function exportToCsv(filename: string, rows: (string | number)[][]) {
+  const csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\n")
+  const link = document.createElement("a")
+  link.setAttribute("href", encodeURI(csvContent))
+  link.setAttribute("download", filename)
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
+
+interface ReportData<T> {
+  title: string
+  description: string
+  chartData: T[]
+  chartType: "bar" | "line" | "pie"
+  csvData: (string | number)[][]
+  dataKey: string
+}
+
+interface DebrisChartData {
+  name: string;
+  count: number;
+}
+
+interface ManufacturingChartData {
+  name: string;
+  quantity: number;
+}
+
+interface ServicingChartData {
+  name: string;
+  count: number;
+}
+
+
 export function SymbioticsPanel() {
   const [viewMode, setViewMode] = useState<"dashboard" | "3d-operations" | "interior">("dashboard")
   const [selectedOperation, setSelectedOperation] = useState<string | null>(null)
+  const [isReportDialogOpen, setIsReportDialogOpen] = useState(false)
+  const [reportData, setReportData] = useState<ReportData<DebrisChartData | ManufacturingChartData | ServicingChartData> | null>(null)
+
+  const generateDebrisReport = useCallback(async () => {
+    try {
+      const response = await nasaDebrisClient.getDebrisData({ limit: 100 })
+      const header = [
+        "ID",
+        "Name",
+        "Type",
+        "Status",
+        "Mass (kg)",
+        "Size (m)",
+        "Inclination (deg)",
+        "Perigee (km)",
+        "Apogee (km)",
+      ]
+      const csvRows = response.data.map((item: DebrisObject) => [
+        item.id,
+        item.name,
+        item.type,
+        item.status,
+        item.mass,
+        item.size,
+        String(item.inclination),
+        String(item.perigee),
+        String(item.apogee),
+      ].map(item => (typeof item === 'boolean' ? (item ? 'true' : 'false') : item)) as (string | number)[]);
+
+      const debrisCountByType = response.data.reduce((acc: { [key: string]: number }, curr: DebrisObject) => {
+        acc[curr.type] = (acc[curr.type] || 0) + 1
+        return acc
+      }, {})
+
+      const chartData: DebrisChartData[] = Object.entries(debrisCountByType).map(([type, count]) => ({
+        name: type.charAt(0).toUpperCase() + type.slice(1),
+        count: count as number,
+      }));
+
+      setReportData({
+        title: "Debris Collection Report",
+        description: "Distribution of tracked debris by type.",
+        chartData,
+        chartType: "bar",
+        csvData: [header, ...csvRows.map(row => row.map((item: string | number | boolean) => typeof item === 'boolean' ? item.toString() : item))],
+        dataKey: "count",
+      });
+      setIsReportDialogOpen(true);
+    } catch (error) {
+      console.error("Failed to generate debris report:", error)
+      // Add toast notification here
+    }
+  }, []);
+
+  const generateManufacturingReport = useCallback(async () => {
+    try {
+      const transactions = await blockchainClient.getTransactions({ type: "material_processing", limit: 50 })
+      const header = ["Transaction ID", "Block Height", "From", "To", "Material", "Quantity"]
+      const csvRows = transactions.data.map((tx: Transaction) => [
+        tx.id,
+        tx.blockHeight,
+        tx.from ?? '',
+        tx.to ?? '',
+        tx.data.material ?? '',
+        tx.data.quantity ?? '0',
+      ])
+
+      const materialCounts = transactions.data.reduce((acc: { [key: string]: number }, curr: Transaction) => {
+        const material = curr.data.material as string
+        const quantity = parseFloat(curr.data.quantity as string)
+        if (material && !isNaN(quantity)) {
+          acc[material] = (acc[material] || 0) + quantity
+        }
+        return acc
+      }, {})
+
+      const chartData: ManufacturingChartData[] = Object.entries(materialCounts).map(([material, quantity]) => ({
+        name: material,
+        quantity: Math.round(quantity as number),
+      }))
+
+      setReportData({
+        title: "Manufacturing Material Report",
+        description: "Materials processed for manufacturing.",
+        chartData,
+        chartType: "bar",
+        csvData: [header, ...csvRows.map(row => row.map(item => typeof item === "boolean" ? item.toString() : (item === null ? '' : item)))],
+        dataKey: "quantity",
+      })
+      setIsReportDialogOpen(true)
+    } catch (error) {
+      console.error("Failed to generate manufacturing report:", error)
+      // Add toast notification here
+    }
+  }, []);
+
+  const generateServicingReport = useCallback(async () => {
+    try {
+      const transactions = await blockchainClient.getTransactions({ type: "satellite_servicing", limit: 50 })
+      const header = ["Transaction ID", "Block Height", "From", "To", "Target Satellite", "Service Type"]
+      const csvRows = transactions.data.map((tx: Transaction) => [
+        tx.id,
+        tx.blockHeight,
+        tx.from,
+        tx.to,
+        tx.data.target,
+        tx.data.service,
+      ])
+
+      const servicesCount = transactions.data.reduce((acc: { [key: string]: number }, curr: Transaction) => {
+        const service = curr.data.service as string
+        acc[service] = (acc[service] || 0) + 1
+        return acc
+      }, {} as { [key: string]: number })
+      
+      const chartData: ServicingChartData[] = Object.entries(servicesCount).map(([service, count]) => ({
+        name: service,
+        count: count as number,
+      }))
+
+      setReportData({
+        title: "Satellite Servicing Report",
+        description: "Breakdown of satellite servicing operations by type.",
+        chartData,
+        chartType: "bar",
+        csvData: [header, ...csvRows.map(row => row.map(item => typeof item === "boolean" ? item.toString() : (item === null ? '' : item)))],
+        dataKey: "count",
+      })
+      setIsReportDialogOpen(true)
+    } catch (error) {
+      console.error("Failed to generate servicing report:", error)
+      // Add toast notification here
+    }
+  }, []);
+
+  const downloadCsv = () => {
+    if (reportData) {
+      exportToCsv(reportData.title.toLowerCase().replace(/\s/g, "_") + ".csv", reportData.csvData);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -31,17 +234,64 @@ export function SymbioticsPanel() {
               Back to Dashboard
             </Button>
           )}
-          <Button 
+          <Button
             variant={viewMode === "3d-operations" ? "default" : "outline"}
             onClick={() => setViewMode("3d-operations")}
           >
             <Eye className="h-4 w-4 mr-2" />
             3D Operations View
           </Button>
-          <Button variant="outline">
-            <TrendingUp className="h-4 w-4 mr-2" />
-            Reports
-          </Button>
+
+          <Dialog open={isReportDialogOpen} onOpenChange={setIsReportDialogOpen}>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="gap-2">
+                  <TrendingUp className="h-4 w-4" />
+                  Reports
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuLabel>Generate CSV Reports</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={generateDebrisReport}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Debris Collection Report
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={generateManufacturingReport}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Manufacturing Report
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={generateServicingReport}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Satellite Servicing Report
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DialogContent className="max-w-3xl">
+              <DialogHeader>
+                <DialogTitle>{reportData?.title}</DialogTitle>
+                <DialogDescription>{reportData?.description}</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="h-[400px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={reportData?.chartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey={reportData?.dataKey} fill="#8B5CF6" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <Button onClick={downloadCsv} className="w-full">
+                  <FileText className="h-4 w-4 mr-2" />
+                  Download CSV
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -59,7 +309,7 @@ export function SymbioticsPanel() {
           </CardHeader>
           <CardContent className="p-0">
             <div className="relative h-[600px] w-full rounded-b-xl overflow-hidden">
-              <OrbitalScene 
+              <OrbitalScene
                 isPlaying={true}
                 timeScale={1}
                 selectedSatellite={null}
@@ -69,7 +319,7 @@ export function SymbioticsPanel() {
                   setViewMode("interior")
                 }}
               />
-              
+
               {/* Operations overlay */}
               <div className="absolute top-4 left-4 space-y-2 pointer-events-none">
                 <div className="bg-black/60 backdrop-blur-sm rounded-lg p-3 text-xs font-mono text-cyan-400 border border-cyan-500/30">
@@ -112,7 +362,7 @@ export function SymbioticsPanel() {
           </CardHeader>
           <CardContent className="p-0">
             <div className="relative h-[600px] w-full rounded-b-xl overflow-hidden">
-              <SatelliteInteriorScene 
+              <SatelliteInteriorScene
                 activeSystem="furnace"
                 currentOperation={{
                   id: "symbiotic-process-1",
@@ -121,7 +371,7 @@ export function SymbioticsPanel() {
                   component: "Debris Processing Unit",
                   duration: 120,
                   progress: 67,
-                  status: "in-progress"
+                  status: "in-progress",
                 }}
               />
             </div>
@@ -134,284 +384,288 @@ export function SymbioticsPanel() {
         <>
           {/* Key Metrics */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Recycle className="h-4 w-4" />
-              Debris Recycled
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">2,847 kg</div>
-            <p className="text-xs text-muted-foreground">+23% this month</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Factory className="h-4 w-4" />
-              Components Made
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">156</div>
-            <p className="text-xs text-muted-foreground">Various parts</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Wrench className="h-4 w-4" />
-              Satellites Serviced
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">23</div>
-            <p className="text-xs text-muted-foreground">Life extended</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Revenue Generated</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">$4.2M</div>
-            <p className="text-xs text-muted-foreground">This quarter</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Tabs defaultValue="operations" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="operations">Active Operations</TabsTrigger>
-          <TabsTrigger value="manufacturing">Manufacturing Hub</TabsTrigger>
-          <TabsTrigger value="servicing">Satellite Servicing</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="operations" className="space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Recycle className="h-5 w-5" />
-                  Debris Collection Missions
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Recycle className="h-4 w-4" />
+                  Debris Recycled
                 </CardTitle>
-                <CardDescription>Current and planned debris capture operations</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
-                    <div>
-                      <p className="font-medium">Mission ODR-2024-001</p>
-                      <p className="text-sm text-muted-foreground">Target: Defunct Satellite A47</p>
-                    </div>
-                    <Badge variant="default">In Progress</Badge>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
-                    <div>
-                      <p className="font-medium">Mission ODR-2024-002</p>
-                      <p className="text-sm text-muted-foreground">Target: Rocket Stage B23</p>
-                    </div>
-                    <Badge variant="secondary">Planned</Badge>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
-                    <div>
-                      <p className="font-medium">Mission ODR-2024-003</p>
-                      <p className="text-sm text-muted-foreground">Target: Multiple Small Debris</p>
-                    </div>
-                    <Badge variant="outline">Scheduled</Badge>
-                  </div>
-                </div>
+              <CardContent>
+                <div className="text-2xl font-bold">2,847 kg</div>
+                <p className="text-xs text-muted-foreground">+23% this month</p>
               </CardContent>
             </Card>
 
             <Card>
-              <CardHeader>
-                <CardTitle>System Status</CardTitle>
-                <CardDescription>Health and performance of Symbiont platforms</CardDescription>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Factory className="h-4 w-4" />
+                  Components Made
+                </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-3">
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span>Symbiont-1 (Harvester)</span>
-                      <span>98%</span>
-                    </div>
-                    <Progress value={98} className="h-2" />
-                  </div>
+              <CardContent>
+                <div className="text-2xl font-bold">156</div>
+                <p className="text-xs text-muted-foreground">Various parts</p>
+              </CardContent>
+            </Card>
 
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span>Manufacturing Hub-1</span>
-                      <span>94%</span>
-                    </div>
-                    <Progress value={94} className="h-2" />
-                  </div>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Wrench className="h-4 w-4" />
+                  Satellites Serviced
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">23</div>
+                <p className="text-xs text-muted-foreground">Life extended</p>
+              </CardContent>
+            </Card>
 
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span>Servicing Module-1</span>
-                      <span>89%</span>
-                    </div>
-                    <Progress value={89} className="h-2" />
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t">
-                  <div className="flex items-center gap-2 text-sm text-amber-600">
-                    <AlertTriangle className="h-4 w-4" />
-                    Servicing Module-1: Scheduled maintenance in 3 days
-                  </div>
-                </div>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Revenue Generated</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">$4.2M</div>
+                <p className="text-xs text-muted-foreground">This quarter</p>
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
 
-        <TabsContent value="manufacturing" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Factory className="h-5 w-5" />
-                In-Space Manufacturing Hub
-              </CardTitle>
-              <CardDescription>3D printing and component fabrication using recycled materials</CardDescription>
-            </CardHeader>
-            <CardContent>
+          <Tabs defaultValue="operations" className="space-y-4">
+            <TabsList>
+              <TabsTrigger value="operations">Active Operations</TabsTrigger>
+              <TabsTrigger value="manufacturing">Manufacturing Hub</TabsTrigger>
+              <TabsTrigger value="servicing">Satellite Servicing</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="operations" className="space-y-4">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <h4 className="font-medium">Current Production Queue</h4>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between p-3 border rounded-lg">
-                      <div>
-                        <p className="font-medium">Solar Panel Assembly</p>
-                        <p className="text-sm text-muted-foreground">For OrbNet-3 upgrade</p>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Recycle className="h-5 w-5" />
+                      Debris Collection Missions
+                    </CardTitle>
+                    <CardDescription>Current and planned debris capture operations</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between p-3 border rounded-lg">
+                        <div>
+                          <p className="font-medium">Mission ODR-2024-001</p>
+                          <p className="text-sm text-muted-foreground">Target: Defunct Satellite A47</p>
+                        </div>
+                        <Badge variant="default">In Progress</Badge>
                       </div>
-                      <div className="text-right">
-                        <Badge variant="default">Printing</Badge>
-                        <p className="text-xs text-muted-foreground mt-1">6h remaining</p>
+
+                      <div className="flex items-center justify-between p-3 border rounded-lg">
+                        <div>
+                          <p className="font-medium">Mission ODR-2024-002</p>
+                          <p className="text-sm text-muted-foreground">Target: Rocket Stage B23</p>
+                        </div>
+                        <Badge variant="secondary">Planned</Badge>
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 border rounded-lg">
+                        <div>
+                          <p className="font-medium">Mission ODR-2024-003</p>
+                          <p className="text-sm text-muted-foreground">Target: Multiple Small Debris</p>
+                        </div>
+                        <Badge variant="outline">Scheduled</Badge>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>System Status</CardTitle>
+                    <CardDescription>Health and performance of Symbiont platforms</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-3">
+                      <div>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span>Symbiont-1 (Harvester)</span>
+                          <span>98%</span>
+                        </div>
+                        <Progress value={98} className="h-2" />
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span>Manufacturing Hub-1</span>
+                          <span>94%</span>
+                        </div>
+                        <Progress value={94} className="h-2" />
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span>Servicing Module-1</span>
+                          <span>89%</span>
+                        </div>
+                        <Progress value={89} className="h-2" />
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between p-3 border rounded-lg">
-                      <div>
-                        <p className="font-medium">Thruster Components</p>
-                        <p className="text-sm text-muted-foreground">Replacement parts</p>
+                    <div className="pt-2 border-t">
+                      <div className="flex items-center gap-2 text-sm text-amber-600">
+                        <AlertTriangle className="h-4 w-4" />
+                        Servicing Module-1: Scheduled maintenance in 3 days
                       </div>
-                      <div className="text-right">
-                        <Badge variant="secondary">Queued</Badge>
-                        <p className="text-xs text-muted-foreground mt-1">Est. 12h</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="manufacturing" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Factory className="h-5 w-5" />
+                    In-Space Manufacturing Hub
+                  </CardTitle>
+                  <CardDescription>
+                    3D printing and component fabrication using recycled materials
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <h4 className="font-medium">Current Production Queue</h4>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between p-3 border rounded-lg">
+                          <div>
+                            <p className="font-medium">Solar Panel Assembly</p>
+                            <p className="text-sm text-muted-foreground">For OrbNet-3 upgrade</p>
+                          </div>
+                          <div className="text-right">
+                            <Badge variant="default">Printing</Badge>
+                            <p className="text-xs text-muted-foreground mt-1">6h remaining</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between p-3 border rounded-lg">
+                          <div>
+                            <p className="font-medium">Thruster Components</p>
+                            <p className="text-sm text-muted-foreground">Replacement parts</p>
+                          </div>
+                          <div className="text-right">
+                            <Badge variant="secondary">Queued</Badge>
+                            <p className="text-xs text-muted-foreground mt-1">Est. 12h</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <h4 className="font-medium">Material Inventory</h4>
+                      <div className="space-y-3">
+                        <div>
+                          <div className="flex justify-between text-sm mb-1">
+                            <span>Aluminum Alloy</span>
+                            <span>847 kg</span>
+                          </div>
+                          <Progress value={85} className="h-2" />
+                        </div>
+
+                        <div>
+                          <div className="flex justify-between text-sm mb-1">
+                            <span>Titanium</span>
+                            <span>234 kg</span>
+                          </div>
+                          <Progress value={45} className="h-2" />
+                        </div>
+
+                        <div>
+                          <div className="flex justify-between text-sm mb-1">
+                            <span>Rare Earth Elements</span>
+                            <span>67 kg</span>
+                          </div>
+                          <Progress value={23} className="h-2" />
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-                <div className="space-y-4">
-                  <h4 className="font-medium">Material Inventory</h4>
-                  <div className="space-y-3">
-                    <div>
-                      <div className="flex justify-between text-sm mb-1">
-                        <span>Aluminum Alloy</span>
-                        <span>847 kg</span>
-                      </div>
-                      <Progress value={85} className="h-2" />
-                    </div>
+            <TabsContent value="servicing" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Wrench className="h-5 w-5" />
+                    Satellite Life Extension Services
+                  </CardTitle>
+                  <CardDescription>
+                    Repair, refuel, and upgrade operations for active satellites
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <Card>
+                        <CardContent className="pt-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="font-medium">OrbNet-2</h4>
+                            <Badge variant="default">Servicing</Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground mb-3">Fuel refill operation</p>
+                          <div className="space-y-2">
+                            <div className="flex justify-between text-xs">
+                              <span>Progress</span>
+                              <span>67%</span>
+                            </div>
+                            <Progress value={67} className="h-1" />
+                          </div>
+                        </CardContent>
+                      </Card>
 
-                    <div>
-                      <div className="flex justify-between text-sm mb-1">
-                        <span>Titanium</span>
-                        <span>234 kg</span>
-                      </div>
-                      <Progress value={45} className="h-2" />
-                    </div>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="font-medium">CommSat-5</h4>
+                            <Badge variant="secondary">Scheduled</Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground mb-3">Solar panel replacement</p>
+                          <div className="space-y-2">
+                            <div className="flex justify-between text-xs">
+                              <span>ETA</span>
+                              <span>2 days</span>
+                            </div>
+                            <Progress value={0} className="h-1" />
+                          </div>
+                        </CardContent>
+                      </Card>
 
-                    <div>
-                      <div className="flex justify-between text-sm mb-1">
-                        <span>Rare Earth Elements</span>
-                        <span>67 kg</span>
-                      </div>
-                      <Progress value={23} className="h-2" />
+                      <Card>
+                        <CardContent className="pt-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="font-medium">WeatherSat-3</h4>
+                            <Badge variant="outline">Completed</Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground mb-3">Antenna repair</p>
+                          <div className="space-y-2">
+                            <div className="flex justify-between text-xs">
+                              <span>Completed</span>
+                              <span>Jan 14</span>
+                            </div>
+                            <Progress value={100} className="h-1" />
+                          </div>
+                        </CardContent>
+                      </Card>
                     </div>
                   </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="servicing" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Wrench className="h-5 w-5" />
-                Satellite Life Extension Services
-              </CardTitle>
-              <CardDescription>Repair, refuel, and upgrade operations for active satellites</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <Card>
-                    <CardContent className="pt-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-medium">OrbNet-2</h4>
-                        <Badge variant="default">Servicing</Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground mb-3">Fuel refill operation</p>
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-xs">
-                          <span>Progress</span>
-                          <span>67%</span>
-                        </div>
-                        <Progress value={67} className="h-1" />
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardContent className="pt-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-medium">CommSat-5</h4>
-                        <Badge variant="secondary">Scheduled</Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground mb-3">Solar panel replacement</p>
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-xs">
-                          <span>ETA</span>
-                          <span>2 days</span>
-                        </div>
-                        <Progress value={0} className="h-1" />
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardContent className="pt-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-medium">WeatherSat-3</h4>
-                        <Badge variant="outline">Completed</Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground mb-3">Antenna repair</p>
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-xs">
-                          <span>Completed</span>
-                          <span>Jan 14</span>
-                        </div>
-                        <Progress value={100} className="h-1" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
         </>
       )}
     </div>

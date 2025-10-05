@@ -1,5 +1,5 @@
 // Blockchain utility functions and types
-
+import { ethers } from "ethers"
 export type TransactionMetadataValue = string | number | boolean | null
 
 export type TransactionMetadata = Record<string, TransactionMetadataValue>
@@ -133,6 +133,8 @@ export interface BlockchainAnalytics {
 // Blockchain API client
 export class BlockchainClient {
   private baseUrl: string
+  private blocks: Block[] = [] // Add this property to store blocks
+  private transactions: Transaction[] = [] // Add this property to store transactions
 
   constructor(baseUrl = "/api/blockchain") {
     this.baseUrl = baseUrl
@@ -162,33 +164,48 @@ export class BlockchainClient {
 
     return { data: result.data, total: result.total }
   }
+  
 
-  async createTransaction(transaction: {
-    type: Transaction["type"]
-    data: TransactionMetadata
-    from: string
-    to: string
-  }): Promise<Transaction> {
-    const response = await fetch(`${this.baseUrl}/transactions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(transaction),
-    })
+  async createTransaction(txData: {
+  type: Transaction["type"]
+  data: TransactionMetadata
+  from: string
+  to: string
+  timestamp: number
+  signature: string // Expect a signature
+}): Promise<{ success: boolean }> {
+  const { signature, ...payload } = txData
+  const message = JSON.stringify(payload)
 
-    const result: {
-      success: boolean
-      data: Transaction
-      error?: string
-    } = await response.json()
+  // 1. Verify the signature
+  try {
+    const signerAddress = ethers.verifyMessage(message, signature)
 
-    if (!result.success) {
-      throw new Error(result.error)
+    // 2. Check if the signer's address matches the 'from' address
+    if (signerAddress.toLowerCase() !== payload.from.toLowerCase()) {
+      throw new Error("Signature is invalid or does not match the sender's address.")
     }
-
-    return result.data
+  } catch (error) {
+    console.error("Signature verification failed:", error)
+    throw new Error("Invalid signature.")
   }
+
+  // If verification passes, proceed to add the transaction
+  console.log("✅ Signature Verified Successfully!")
+
+  const newTransaction: Transaction = {
+    id: `tx_${Math.random().toString(36).substring(2, 10)}`,
+    ...payload,
+    timestamp: payload.timestamp.toString(),
+    status: "confirmed",
+    blockHeight: this.blocks[this.blocks.length - 1].height,
+    hash: ethers.id(JSON.stringify(payload) + Date.now()), // simple hash
+    gasUsed: 21000, // default or estimate as needed
+    signature: signature,
+  }
+  this.transactions.unshift(newTransaction)
+  return { success: true }
+}
 
   async getBlocks(params?: {
     limit?: number
