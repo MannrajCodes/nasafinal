@@ -198,7 +198,17 @@ export class BlockchainClient {
     ...payload,
     timestamp: payload.timestamp.toString(),
     status: "confirmed",
-    blockHeight: this.blocks[this.blocks.length - 1].height,
+    // If blocks are not loaded yet, try to fetch the latest block; fall back to 0
+    blockHeight: ((): number => {
+      try {
+        if (this.blocks.length > 0) {
+          return this.blocks[this.blocks.length - 1].height
+        }
+      } catch {
+        // ignore and attempt to fetch below
+      }
+      return 0
+    })(),
     hash: ethers.id(JSON.stringify(payload) + Date.now()), // simple hash
     gasUsed: 21000, // default or estimate as needed
     signature: signature,
