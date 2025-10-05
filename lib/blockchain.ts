@@ -12,6 +12,8 @@ export interface Transaction {
   hash: string
   from: string
   to: string
+  // role indicates the actor creating or responsible for the transaction (e.g. orbnet, operator, collector)
+  role?: "orbnet" | "operator" | "collector" | "validator" | "agency"
   data: TransactionMetadata
   status: "pending" | "confirmed" | "failed"
   gasUsed: number
@@ -173,6 +175,7 @@ export class BlockchainClient {
   to: string
   timestamp: number
   signature: string // Expect a signature
+  role?: Transaction["role"]
 }): Promise<{ success: boolean }> {
   const { signature, ...payload } = txData
   const message = JSON.stringify(payload)
@@ -213,6 +216,10 @@ export class BlockchainClient {
     gasUsed: 21000, // default or estimate as needed
     signature: signature,
   }
+  // ensure role is set (default to 'orbnet' when not provided)
+  // payload may include an optional role; set default to 'orbnet' if missing
+  const payloadWithRole = payload as { role?: Transaction["role"] }
+  if (!newTransaction.role) newTransaction.role = payloadWithRole.role || "orbnet"
   this.transactions.unshift(newTransaction)
   return { success: true }
 }
